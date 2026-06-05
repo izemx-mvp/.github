@@ -3,7 +3,8 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else echo "No package-lock.json found, falling back to npm install" && npm install; fi
+# --legacy-peer-deps tolerates Lovable's frequent peer-dependency mismatches
+RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else echo "No package-lock.json found, falling back to npm install" && npm install --legacy-peer-deps; fi
 
 COPY . .
 RUN npm run build:docker
