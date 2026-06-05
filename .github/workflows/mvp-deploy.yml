@@ -45,15 +45,16 @@ jobs:
           fi
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
 
-      - name: Docker Hub auth (reuse DOCKER_AUTH_CONFIG)
+      - name: Docker Hub login
         env:
-          DOCKER_AUTH_CONFIG: ${{ secrets.DOCKER_AUTH_CONFIG }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: |
-          if [ -z "$DOCKER_AUTH_CONFIG" ]; then
-            echo "ERROR: DOCKER_AUTH_CONFIG secret is empty"; exit 1
+          if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
+            echo "ERROR: set org secrets DOCKER_USERNAME and DOCKER_PASSWORD (Docker Hub access token)"
+            exit 1
           fi
-          mkdir -p ~/.docker
-          printf '%s' "$DOCKER_AUTH_CONFIG" > ~/.docker/config.json
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
 
       - name: Build and push image
         id: build
