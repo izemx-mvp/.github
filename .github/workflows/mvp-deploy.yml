@@ -11,7 +11,6 @@ name: MVP Deploy
 
 on:
   workflow_call:
-    secrets: inherit
 
 jobs:
   deploy:
