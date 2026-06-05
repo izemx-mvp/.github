@@ -97,6 +97,11 @@ jobs:
         run: |
           HOST="${SLUG}.${DOMAIN}"
           echo "Deploying ${IMAGE} -> https://${HOST}"
+          if kubectl get deployment "${SLUG}" -n mvp-lab >/dev/null 2>&1; then
+            echo "DEPLOY_MODE=updated" >> "$GITHUB_ENV"
+          else
+            echo "DEPLOY_MODE=created" >> "$GITHUB_ENV"
+          fi
           retry() {
             for i in $(seq 1 5); do
               "$@" && return 0
@@ -152,7 +157,12 @@ jobs:
         if: success()
         run: |
           if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+            if [ "${DEPLOY_MODE:-updated}" = "created" ]; then
+              MSG="🚀 New MVP **${SLUG}** created and deployed\nhttps://${SLUG}.${DOMAIN}"
+            else
+              MSG="🔄 MVP **${SLUG}** updated\nhttps://${SLUG}.${DOMAIN}"
+            fi
             curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
               -H "Content-Type: application/json" \
-              -d "{\"content\":\"✅ MVP **${SLUG}** deployed successfully\nhttps://${SLUG}.${DOMAIN}\"}"
+              -d "{\"content\":\"${MSG}\"}"
           fi
