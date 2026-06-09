@@ -34,15 +34,21 @@ jobs:
 
       - name: Stage build assets + ensure build:docker script
         run: |
-          cp .mvp/mvp-template/Dockerfile .
-          cp .mvp/mvp-template/nginx.conf .
-          cp .mvp/mvp-template/vite.config.docker.ts .
-          cp .mvp/mvp-template/.dockerignore .
           cp -r .mvp/mvp-template/k8s ./k8s
-          if [ ! -f package.json ]; then
-            echo "ERROR: package.json missing"; exit 1
+          if [ -f package.json ]; then
+            echo "Build mode: Lovable (npm/vite)"
+            cp .mvp/mvp-template/Dockerfile .
+            cp .mvp/mvp-template/nginx.conf .
+            cp .mvp/mvp-template/vite.config.docker.ts .
+            cp .mvp/mvp-template/.dockerignore .
+            node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
+          elif [ -f index.html ]; then
+            echo "Build mode: static HTML"
+            cp .mvp/mvp-template/static/Dockerfile .
+            cp .mvp/mvp-template/static/nginx.conf .
+          else
+            echo "ERROR: need package.json (Lovable) or index.html (static site)"; exit 1
           fi
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
 
       - name: Docker Hub login
         env:
