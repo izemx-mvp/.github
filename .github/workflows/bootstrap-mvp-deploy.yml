@@ -1,11 +1,6 @@
-# Fully automatic: Lovable links GitHub → this adds deploy.yml + sets Public.
-# Safety net: runs every 10 min for any repo that was missed.
+# Auto-add deploy.yml + set Public for every izemx-mvp repo (Lovable connect = done).
 #
-# ONE-TIME SETUP:
-# 1. Push this file to izemx-mvp/.github on main
-# 2. Org secret MVP_GH_PAT (fine-grained PAT, Contents+Administration write, all izemx-mvp repos)
-# 3. Org secret access: ALL repositories (not only public)
-# 4. izemx-mvp → Settings → Actions → Workflow permissions → Read and write
+# ONE-TIME: Org secret MVP_GH_PAT (Contents+Administration write, all repos, secret access = ALL)
 
 name: Bootstrap MVP deploy
 
@@ -17,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       repo:
-        description: "Single repo to fix (optional)"
+        description: "Single repo to fix (optional, empty = scan all)"
         required: false
         type: string
 
@@ -25,26 +20,24 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout templates
+        uses: actions/checkout@v4
+
       - name: Bootstrap MVP repos (pipeline + public)
         uses: actions/github-script@v7
         env:
           MVP_GH_PAT: ${{ secrets.MVP_GH_PAT }}
+          DEPLOY_YAML: ${{ github.workspace }}/mvp-template/deploy-caller.yml
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REPO: ${{ inputs.repo }}
+          CREATED_REPO: ${{ github.event.repository.name }}
         with:
           github-token: ${{ secrets.MVP_GH_PAT }}
           script: |
+            const fs = require('fs');
             const owner = 'izemx-mvp';
             const path = '.github/workflows/deploy.yml';
-            const deployYaml = `name: Deploy MVP
-
-            on:
-              push:
-                branches: [main, develop]
-
-            jobs:
-              deploy:
-                uses: izemx-mvp/.github/.github/workflows/mvp-deploy.yml@main
-                secrets: inherit
-            `.replace(/^ {12}/gm, '');
+            const deployYaml = fs.readFileSync(process.env.DEPLOY_YAML, 'utf8');
 
             if (!process.env.MVP_GH_PAT) {
               core.setFailed('MVP_GH_PAT org secret missing');
@@ -52,14 +45,14 @@ jobs:
             }
 
             let repos = [];
-            if ('${{ github.event_name }}' === 'workflow_dispatch' && '${{ inputs.repo }}') {
-              repos = ['${{ inputs.repo }}'];
-            } else if ('${{ github.event_name }}' === 'repository') {
-              repos = ['${{ github.event.repository.name }}'];
+            if (process.env.EVENT_NAME === 'workflow_dispatch' && process.env.INPUT_REPO) {
+              repos = [process.env.INPUT_REPO];
+            } else if (process.env.EVENT_NAME === 'repository') {
+              repos = [process.env.CREATED_REPO];
             } else {
               const all = await github.paginate(github.rest.repos.listForOrg, { org: owner, per_page: 100 });
               repos = all.map((r) => r.name).filter((n) => n !== '.github');
-              core.info(`Scheduled scan: ${repos.length} repos`);
+              core.info(`Scanning ${repos.length} repos`);
             }
 
             async function bootstrapRepo(repo) {
@@ -79,40 +72,29 @@ jobs:
               if (!deployExists) {
                 const content = Buffer.from(deployYaml).toString('base64');
                 const message = 'chore: bootstrap MVP deploy workflow';
-                let fileSha;
-                try {
-                  const { data: file } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
-                  if (!Array.isArray(file)) fileSha = file.sha;
-                } catch (e) {
-                  if (e.status !== 404) throw e;
-                }
                 try {
                   await github.rest.repos.createOrUpdateFileContents({
                     owner, repo, branch, path, message, content,
-                    ...(fileSha ? { sha: fileSha } : {}),
                   });
-                  core.info(`✅ ${repo}: added deploy.yml on ${branch}`);
+                  core.info(`Added deploy.yml to ${repo} on ${branch}`);
                 } catch (e) {
                   if (e.status === 404 && branch === 'main') {
-                    branch = 'develop';
                     await github.rest.repos.createOrUpdateFileContents({
-                      owner, repo, branch, path, message, content,
+                      owner, repo, branch: 'develop', path, message, content,
                     });
-                    core.info(`✅ ${repo}: added deploy.yml on develop`);
+                    core.info(`Added deploy.yml to ${repo} on develop`);
                   } else {
                     throw e;
                   }
                 }
-              } else {
-                core.info(`${repo}: deploy.yml already exists`);
               }
 
               if (meta.private) {
                 try {
                   await github.rest.repos.update({ owner, repo, private: false });
-                  core.info(`✅ ${repo}: set public`);
+                  core.info(`Set ${repo} to public`);
                 } catch (e) {
-                  core.warning(`⚠️ ${repo}: could not set public — add Administration write to MVP_GH_PAT`);
+                  core.warning(`${repo}: could not set public — PAT needs Administration write`);
                 }
               }
             }
@@ -121,6 +103,6 @@ jobs:
               try {
                 await bootstrapRepo(repo);
               } catch (e) {
-                core.warning(`⚠️ ${repo}: ${e.message}`);
+                core.warning(`${repo}: ${e.message}`);
               }
             }
