@@ -2,7 +2,7 @@
 # Lives in: izemx-mvp/.github/.github/workflows/bootstrap-mvp-deploy.yml
 #
 # Setup (one time):
-# 1. Org secret MVP_GH_PAT — classic PAT with repo scope (org owner account)
+# 1. Org secret MVP_GH_PAT — PAT with Contents + Administration (read/write) on org repos
 # 2. Org → Settings → Actions → General → Workflow permissions → Read and write
 # 3. This repo → Settings → Actions → General → Access → org repos can use workflows
 #
@@ -71,11 +71,12 @@ jobs:
 
             let branch = meta.default_branch || 'main';
             let sha;
+            let deployExists = false;
             try {
               const { data: existing } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
               if (!Array.isArray(existing)) {
-                core.info(`${path} already exists — skipping`);
-                return;
+                deployExists = true;
+                core.info(`${path} already exists — skipping file add`);
               }
             } catch (e) {
               if (e.status !== 404) throw e;
@@ -100,18 +101,19 @@ jobs:
               });
             }
 
-            try {
-              await putFile(branch);
-            } catch (e) {
-              if (e.status === 404 && branch === 'main') {
-                branch = 'develop';
+            if (!deployExists) {
+              try {
                 await putFile(branch);
-              } else {
-                throw e;
+              } catch (e) {
+                if (e.status === 404 && branch === 'main') {
+                  branch = 'develop';
+                  await putFile(branch);
+                } else {
+                  throw e;
+                }
               }
+              core.info(`Bootstrapped ${owner}/${repo} on branch ${branch}`);
             }
-
-            core.info(`Bootstrapped ${owner}/${repo} on branch ${branch}`);
 
             // Public repos required for org secrets on free plan
             if (meta.private) {
