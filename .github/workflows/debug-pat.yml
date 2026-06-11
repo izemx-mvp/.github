@@ -1,0 +1,62 @@
+name: Debug MVP_GH_PAT
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test PAT capabilities step by step
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.MVP_GH_PAT }}
+          script: |
+            const owner = 'izemx-mvp';
+            const repo = 'marketpulse-dashboard';
+
+            async function probe(label, fn) {
+              try {
+                const r = await fn();
+                core.info(`OK    ${label}` + (r ? ` -> ${r}` : ''));
+              } catch (e) {
+                core.warning(`FAIL  ${label} -> status ${e.status}: ${e.message}`);
+              }
+            }
+
+            await probe('whoami (GET /user)', async () => {
+              const { data } = await github.rest.users.getAuthenticated();
+              return data.login;
+            });
+
+            await probe('list org repos visible to PAT', async () => {
+              const { data } = await github.rest.repos.listForOrg({ org: owner, per_page: 100 });
+              return `${data.length} repos, includes ${repo}: ${data.some(r => r.name === repo)}`;
+            });
+
+            await probe(`read repo metadata (${repo})`, async () => {
+              const { data } = await github.rest.repos.get({ owner, repo });
+              return `private=${data.private}, default_branch=${data.default_branch}`;
+            });
+
+            await probe('read contents (package.json)', async () => {
+              const { data } = await github.rest.repos.getContent({ owner, repo, path: 'package.json' });
+              return `size=${data.size}`;
+            });
+
+            await probe('write contents (create+delete probe file)', async () => {
+              const { data } = await github.rest.repos.createOrUpdateFileContents({
+                owner, repo, path: '.pat-probe', message: 'chore: PAT probe (auto-removed)',
+                content: Buffer.from('probe').toString('base64'),
+              });
+              await github.rest.repos.deleteFile({
+                owner, repo, path: '.pat-probe', message: 'chore: remove PAT probe',
+                sha: data.content.sha,
+              });
+              return 'write+delete ok';
+            });
+
+            await probe('admin: read repo visibility via PATCH dry-check (GET only)', async () => {
+              const { data } = await github.rest.repos.get({ owner, repo });
+              return `can read; admin write tested only on real run`;
+            });
