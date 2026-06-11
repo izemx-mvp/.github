@@ -1,12 +1,13 @@
 # Auto-add deploy.yml + set Public for every izemx-mvp repo (Lovable connect = done).
 #
 # ONE-TIME: Org secret MVP_GH_PAT (Contents+Administration write, all repos, secret access = ALL)
+#
+# NOTE: GitHub Actions has no "repository created" workflow trigger — the cron scan
+# below is the mechanism that picks up new Lovable exports (idempotent, scans all repos).
 
 name: Bootstrap MVP deploy
 
 on:
-  repository:
-    types: [created]
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
@@ -30,7 +31,6 @@ jobs:
           DEPLOY_YAML: ${{ github.workspace }}/mvp-template/deploy-caller.yml
           EVENT_NAME: ${{ github.event_name }}
           INPUT_REPO: ${{ inputs.repo }}
-          CREATED_REPO: ${{ github.event.repository.name }}
         with:
           github-token: ${{ secrets.MVP_GH_PAT }}
           script: |
@@ -47,8 +47,6 @@ jobs:
             let repos = [];
             if (process.env.EVENT_NAME === 'workflow_dispatch' && process.env.INPUT_REPO) {
               repos = [process.env.INPUT_REPO];
-            } else if (process.env.EVENT_NAME === 'repository') {
-              repos = [process.env.CREATED_REPO];
             } else {
               const all = await github.paginate(github.rest.repos.listForOrg, { org: owner, per_page: 100 });
               repos = all.map((r) => r.name).filter((n) => n !== '.github');
