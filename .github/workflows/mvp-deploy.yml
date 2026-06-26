@@ -1,7 +1,9 @@
 # Reusable GitHub Actions pipeline for Izemx MVPs (replaces GitLab CI).
 # Build assets live in the SAME repo under mvp-template/
 #
-# Org SECRETS: DOCKER_AUTH_CONFIG, KUBECONFIG, HOSTINGER_API_TOKEN, DISCORD_WEBHOOK_URL
+# Org SECRETS: DOCKERHUB_USERNAME, DOCKER_PASSWORD, KUBECONFIG, HOSTINGER_API_TOKEN, DISCORD_WEBHOOK_URL
+# Per-repo SECRETS (optional, fullstack + DB only): DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD,
+#   LOVABLE_API_KEY, RESEND_API_KEY
 # Org VARIABLES: DOCKER_NAMESPACE, MVP_SERVER_IP, DOMAIN, CLUSTER_ISSUER
 #
 # Repo Settings → Actions → General → Access:
@@ -36,14 +38,25 @@ jobs:
         run: |
           cp -r .mvp/mvp-template/k8s ./k8s
           if [ -f package.json ]; then
-            echo "Build mode: Lovable (npm/vite)"
-            cp .mvp/mvp-template/Dockerfile .
-            cp .mvp/mvp-template/nginx.conf .
-            cp .mvp/mvp-template/vite.config.docker.ts .
-            cp .mvp/mvp-template/.dockerignore .
-            node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
+            if find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
+              echo "Build mode: fullstack (TanStack Start + API routes)"
+              echo "BUILD_MODE=fullstack" >> "$GITHUB_ENV"
+              cp .mvp/mvp-template/Dockerfile.fullstack ./Dockerfile
+              cp .mvp/mvp-template/vite.config.fullstack.ts .
+              cp .mvp/mvp-template/.dockerignore .
+              node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};p.scripts['build:docker']='vite build --config vite.config.fullstack.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('set build:docker for fullstack');"
+            else
+              echo "Build mode: Lovable static SPA (nginx)"
+              echo "BUILD_MODE=lovable-static" >> "$GITHUB_ENV"
+              cp .mvp/mvp-template/Dockerfile .
+              cp .mvp/mvp-template/nginx.conf .
+              cp .mvp/mvp-template/vite.config.docker.ts .
+              cp .mvp/mvp-template/.dockerignore .
+              node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
+            fi
           elif [ -f index.html ]; then
             echo "Build mode: static HTML"
+            echo "BUILD_MODE=static-html" >> "$GITHUB_ENV"
             cp .mvp/mvp-template/static/Dockerfile .
             cp .mvp/mvp-template/static/nginx.conf .
           else
@@ -97,12 +110,41 @@ jobs:
           done
           echo "ERROR: Kubernetes API (${MVP_SERVER_IP}:6443) unreachable after retries"; exit 1
 
+      - name: Sync optional env secret (fullstack only)
+        if: env.BUILD_MODE == 'fullstack'
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          LOVABLE_API_KEY: ${{ secrets.LOVABLE_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          SECRET_NAME="${SLUG}-env"
+          ARGS=()
+          [ -n "$DB_HOST" ] && ARGS+=(--from-literal=DB_HOST="$DB_HOST")
+          [ -n "$DB_PORT" ] && ARGS+=(--from-literal=DB_PORT="$DB_PORT")
+          [ -n "$DB_NAME" ] && ARGS+=(--from-literal=DB_NAME="$DB_NAME")
+          [ -n "$DB_USER" ] && ARGS+=(--from-literal=DB_USER="$DB_USER")
+          [ -n "$DB_PASSWORD" ] && ARGS+=(--from-literal=DB_PASSWORD="$DB_PASSWORD")
+          [ -n "$LOVABLE_API_KEY" ] && ARGS+=(--from-literal=LOVABLE_API_KEY="$LOVABLE_API_KEY")
+          [ -n "$RESEND_API_KEY" ] && ARGS+=(--from-literal=RESEND_API_KEY="$RESEND_API_KEY")
+          if [ ${#ARGS[@]} -eq 0 ]; then
+            echo "No per-repo env secrets configured for ${SLUG} — API runs without DB/email credentials"
+            kubectl delete secret "$SECRET_NAME" -n mvp-lab --ignore-not-found
+            exit 0
+          fi
+          kubectl create secret generic "$SECRET_NAME" -n mvp-lab "${ARGS[@]}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "Synced ${SECRET_NAME} ($((${#ARGS[@]})) keys)"
+
       - name: Deploy to Kubernetes
         env:
           IMAGE: ${{ steps.build.outputs.image }}
         run: |
           HOST="${SLUG}.${DOMAIN}"
-          echo "Deploying ${IMAGE} -> https://${HOST}"
+          echo "Deploying ${IMAGE} -> https://${HOST} (mode: ${BUILD_MODE})"
           if kubectl get deployment "${SLUG}" -n mvp-lab >/dev/null 2>&1; then
             echo "DEPLOY_MODE=updated" >> "$GITHUB_ENV"
           else
@@ -116,7 +158,12 @@ jobs:
             return 1
           }
           mkdir -p rendered
-          for f in k8s/*.yaml; do
+          if [ "${BUILD_MODE}" = "fullstack" ]; then
+            MANIFESTS="k8s/deployment-fullstack.yaml k8s/service-fullstack.yaml k8s/ingress.yaml"
+          else
+            MANIFESTS="k8s/deployment.yaml k8s/service.yaml k8s/ingress.yaml"
+          fi
+          for f in $MANIFESTS; do
             sed -e "s|__IMAGE__|${IMAGE}|g" \
                 -e "s|__SLUG__|${SLUG}|g" \
                 -e "s|__HOST__|${HOST}|g" \

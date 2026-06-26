@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: __SLUG__
+  namespace: mvp-lab
+spec:
+  selector:
+    app: __SLUG__
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
