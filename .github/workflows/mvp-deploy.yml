@@ -79,7 +79,15 @@ jobs:
         run: |
           IMAGE="${REGISTRY}/${DOCKER_NAMESPACE}/${SLUG}"
           TAG="${GITHUB_SHA::12}"
+          echo "Using Dockerfile:"
+          head -n 3 Dockerfile
           docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" .
+          if [ "${BUILD_MODE}" = "fullstack" ]; then
+            CMD=$(docker inspect --format='{{json .Config.Cmd}}' "${IMAGE}:${TAG}")
+            echo "Image CMD: ${CMD}"
+            echo "${CMD}" | grep -q 'index.mjs' || { echo "ERROR: fullstack image must run node .output/server/index.mjs"; exit 1; }
+            docker run --rm --entrypoint sh "${IMAGE}:${TAG}" -c 'test -f .output/server/index.mjs'
+          fi
           docker push "${IMAGE}:${TAG}"
           docker push "${IMAGE}:latest"
           echo "image=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
