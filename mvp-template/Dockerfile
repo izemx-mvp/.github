@@ -9,16 +9,13 @@ RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else echo "No p
 COPY . .
 RUN npm run build:docker
 
-FROM node:22-alpine AS runtime
+FROM nginx:alpine AS runtime
 
-WORKDIR /app
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy the full Nitro output: server bundle + static assets
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist/client /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-ENV PORT=80
-ENV NODE_ENV=production
-
-CMD ["node", "dist/server/server.js"]
+CMD ["nginx", "-g", "daemon off;"]

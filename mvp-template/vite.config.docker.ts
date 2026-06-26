@@ -1,7 +1,6 @@
 /**
- * Docker / Node.js server: no Cloudflare plugin, node preset so Nitro emits
- * dist/server/server.js (a real Node HTTP server) alongside dist/client/ (static assets).
- * The Node server handles both API routes and static file serving.
+ * Docker / static nginx only: no Cloudflare plugin.
+ * The Cloudflare vite output skips dist/server/server.js, which TanStack shell prerender expects.
  */
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -26,8 +25,8 @@ export default defineConfig({
     tsconfigPaths(),
     tailwindcss(),
     tanstackStart({
-      server: {
-        preset: "node",
+      spa: {
+        enabled: true,
       },
     }),
     viteReact(),
