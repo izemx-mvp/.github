@@ -38,6 +38,18 @@ jobs:
         run: |
           cp -r .mvp/mvp-template/k8s ./k8s
           if [ -f package.json ]; then
+            # recharts peers react-is but Lovable often omits it → Vite build fails
+            node -e "
+              const fs=require('fs');
+              const p=JSON.parse(fs.readFileSync('package.json'));
+              p.dependencies=p.dependencies||{};
+              const hasRecharts=!!(p.dependencies.recharts||(p.devDependencies||{}).recharts);
+              if(hasRecharts && !p.dependencies['react-is'] && !(p.devDependencies||{})['react-is']){
+                p.dependencies['react-is']='^19.0.0';
+                fs.writeFileSync('package.json',JSON.stringify(p,null,2));
+                console.log('added missing peer dependency: react-is');
+              }
+            "
             if find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
               echo "Build mode: fullstack (TanStack Start + API routes)"
               echo "BUILD_MODE=fullstack" >> "$GITHUB_ENV"

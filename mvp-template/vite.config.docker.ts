@@ -17,6 +17,7 @@ export default defineConfig({
     dedupe: [
       "react",
       "react-dom",
+      "react-is",
       "@tanstack/react-router",
       "@tanstack/react-start",
     ],
