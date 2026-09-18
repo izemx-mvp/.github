@@ -2,8 +2,9 @@
 # Build assets live in the SAME repo under mvp-template/
 #
 # Org SECRETS: DOCKERHUB_USERNAME, DOCKER_PASSWORD, KUBECONFIG, HOSTINGER_API_TOKEN, DISCORD_WEBHOOK_URL
-# Per-repo SECRETS (optional, fullstack + DB only): DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD,
-#   LOVABLE_API_KEY, RESEND_API_KEY
+# Per-repo SECRETS (optional):
+#   fullstack: DB_*, LOVABLE_API_KEY, RESEND_API_KEY
+#   custom (e.g. decorum): OPENAI_API_KEY, OPENAI_VISION_MODEL, OPENAI_IMAGE_MODEL, OPENAI_TEXT_MODEL
 # Org VARIABLES: DOCKER_NAMESPACE, MVP_SERVER_IP, DOMAIN, CLUSTER_ISSUER
 #
 # Repo Settings → Actions → General → Access:
@@ -37,6 +38,14 @@ jobs:
       - name: Stage build assets + ensure build:docker script
         run: |
           cp -r .mvp/mvp-template/k8s ./k8s
+
+          # Custom monorepo (e.g. Decorum): keep the repo's own Dockerfile (Express on 8787).
+          if [ -f Dockerfile ] && [ -f client/package.json ] && [ -f server/package.json ]; then
+            echo "Build mode: custom (repo Dockerfile, port 8787)"
+            echo "BUILD_MODE=custom" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
           if [ -f package.json ]; then
             # recharts peers react-is but Lovable often omits it → Vite build fails
             node -e "
@@ -72,7 +81,7 @@ jobs:
             cp .mvp/mvp-template/static/Dockerfile .
             cp .mvp/mvp-template/static/nginx.conf .
           else
-            echo "ERROR: need package.json (Lovable) or index.html (static site)"; exit 1
+            echo "ERROR: need package.json (Lovable), index.html (static), or custom client+server Dockerfile"; exit 1
           fi
 
       - name: Docker Hub login
@@ -92,13 +101,17 @@ jobs:
           IMAGE="${REGISTRY}/${DOCKER_NAMESPACE}/${SLUG}"
           TAG="${GITHUB_SHA::12}"
           echo "Using Dockerfile:"
-          head -n 3 Dockerfile
+          head -n 5 Dockerfile
           docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" .
           if [ "${BUILD_MODE}" = "fullstack" ]; then
             CMD=$(docker inspect --format='{{json .Config.Cmd}}' "${IMAGE}:${TAG}")
             echo "Image CMD: ${CMD}"
             echo "${CMD}" | grep -q 'index.mjs' || { echo "ERROR: fullstack image must run node .output/server/index.mjs"; exit 1; }
             docker run --rm --entrypoint sh "${IMAGE}:${TAG}" -c 'test -f .output/server/index.mjs'
+          elif [ "${BUILD_MODE}" = "custom" ]; then
+            CMD=$(docker inspect --format='{{json .Config.Cmd}}' "${IMAGE}:${TAG}")
+            echo "Image CMD: ${CMD}"
+            docker run --rm --entrypoint sh "${IMAGE}:${TAG}" -c 'test -f server/dist/index.js'
           fi
           docker push "${IMAGE}:${TAG}"
           docker push "${IMAGE}:latest"
@@ -130,8 +143,8 @@ jobs:
           done
           echo "ERROR: Kubernetes API (${MVP_SERVER_IP}:6443) unreachable after retries"; exit 1
 
-      - name: Sync optional env secret (fullstack only)
-        if: env.BUILD_MODE == 'fullstack'
+      - name: Sync optional env secret (fullstack / custom)
+        if: env.BUILD_MODE == 'fullstack' || env.BUILD_MODE == 'custom'
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
@@ -140,6 +153,10 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           LOVABLE_API_KEY: ${{ secrets.LOVABLE_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_VISION_MODEL: ${{ secrets.OPENAI_VISION_MODEL }}
+          OPENAI_IMAGE_MODEL: ${{ secrets.OPENAI_IMAGE_MODEL }}
+          OPENAI_TEXT_MODEL: ${{ secrets.OPENAI_TEXT_MODEL }}
         run: |
           SECRET_NAME="${SLUG}-env"
           ARGS=()
@@ -150,8 +167,12 @@ jobs:
           [ -n "$DB_PASSWORD" ] && ARGS+=(--from-literal=DB_PASSWORD="$DB_PASSWORD")
           [ -n "$LOVABLE_API_KEY" ] && ARGS+=(--from-literal=LOVABLE_API_KEY="$LOVABLE_API_KEY")
           [ -n "$RESEND_API_KEY" ] && ARGS+=(--from-literal=RESEND_API_KEY="$RESEND_API_KEY")
+          [ -n "$OPENAI_API_KEY" ] && ARGS+=(--from-literal=OPENAI_API_KEY="$OPENAI_API_KEY")
+          [ -n "$OPENAI_VISION_MODEL" ] && ARGS+=(--from-literal=OPENAI_VISION_MODEL="$OPENAI_VISION_MODEL")
+          [ -n "$OPENAI_IMAGE_MODEL" ] && ARGS+=(--from-literal=OPENAI_IMAGE_MODEL="$OPENAI_IMAGE_MODEL")
+          [ -n "$OPENAI_TEXT_MODEL" ] && ARGS+=(--from-literal=OPENAI_TEXT_MODEL="$OPENAI_TEXT_MODEL")
           if [ ${#ARGS[@]} -eq 0 ]; then
-            echo "No per-repo env secrets configured for ${SLUG} — API runs without DB/email credentials"
+            echo "No per-repo env secrets configured for ${SLUG} — app runs with defaults / demo mode"
             kubectl delete secret "$SECRET_NAME" -n mvp-lab --ignore-not-found
             exit 0
           fi
@@ -180,6 +201,8 @@ jobs:
           mkdir -p rendered
           if [ "${BUILD_MODE}" = "fullstack" ]; then
             MANIFESTS="k8s/deployment-fullstack.yaml k8s/service-fullstack.yaml k8s/ingress.yaml"
+          elif [ "${BUILD_MODE}" = "custom" ]; then
+            MANIFESTS="k8s/deployment-custom.yaml k8s/service-custom.yaml k8s/ingress.yaml"
           else
             MANIFESTS="k8s/deployment.yaml k8s/service.yaml k8s/ingress.yaml"
           fi
@@ -191,7 +214,10 @@ jobs:
                 "$f" > "rendered/$(basename "$f")"
           done
           retry kubectl apply --validate=false -f rendered/
-          retry kubectl rollout status "deployment/${SLUG}" -n mvp-lab --timeout=180s
+          # Custom images (OpenAI, heavier boot) get a longer rollout window
+          TIMEOUT=180s
+          if [ "${BUILD_MODE}" = "custom" ]; then TIMEOUT=300s; fi
+          retry kubectl rollout status "deployment/${SLUG}" -n mvp-lab --timeout="$TIMEOUT"
 
       - name: Update Hostinger DNS
         run: |

@@ -7,11 +7,12 @@
 
 | Detection | Mode | Runtime |
 |---|---|---|
+| Root `Dockerfile` + `client/` + `server/` | **custom** | Keep repo Dockerfile (e.g. Express **8787**) |
 | `index.html` at repo root | static HTML | nginx |
-| `package.json` without `src/routes/api/` | Lovable SPA | nginx |
-| `package.json` + `src/routes/api/*.ts(x)` | fullstack | Node (TanStack Start + Nitro) |
+| `package.json` without server features | Lovable SPA | nginx |
+| `src/routes/api/` | fullstack | Node (TanStack Start + Nitro) |
 
-MVPs **without** a database are unchanged — only repos with API routes use the Node runtime.
+Lovable / static MVPs are unchanged. Custom mode never overwrites the app's Dockerfile.
 
 ## MVP repos
 
@@ -26,20 +27,19 @@ Each app only needs `.github/workflows/deploy.yml` calling the reusable workflow
 **This repo → Settings → Actions → General → Access:**  
 Choose **Accessible from repositories in the izemx-mvp organization** and save.
 
-## Optional per-repo secrets (DB-backed fullstack MVPs only)
-
-Add these **only on repos that need a database or email connector** (e.g. `formation`). Other MVPs can omit them entirely.
+## Optional per-repo secrets
 
 | Secret | Used for |
 |---|---|
-| `DB_HOST` | PostgreSQL host |
-| `DB_PORT` | PostgreSQL port (e.g. `5432`) |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database user |
-| `DB_PASSWORD` | Database password |
-| `LOVABLE_API_KEY` | Optional — Resend connector via Lovable |
-| `RESEND_API_KEY` | Optional — Resend email API |
+| `DB_*` | PostgreSQL (fullstack apps like formation) |
+| `LOVABLE_API_KEY` / `RESEND_API_KEY` | Email connector |
+| `OPENAI_API_KEY` | Custom apps (e.g. decorum) — optional; demo mode without it |
+| `OPENAI_VISION_MODEL` / `OPENAI_IMAGE_MODEL` / `OPENAI_TEXT_MODEL` | Optional model overrides |
 
-The pipeline creates a Kubernetes secret `{repo-name}-env` in `mvp-lab` and mounts it via `envFrom` (optional — pods start even when the secret is missing).
+The pipeline creates `{repo-name}-env` in `mvp-lab` and mounts it via `envFrom` (optional).
 
-**Network:** ensure PostgreSQL is reachable from the cluster node (`187.124.12.100`). If the DB is on an internal hostname (e.g. `dbs-local.mc-intern.com`), open firewall/DNS so cluster pods can connect on port 5432.
+## Decorum example
+
+1. Repo on GitHub: `izemx-mvp/decorum-mvp` (public), with `.github/workflows/deploy.yml`
+2. Optional repo secrets: `OPENAI_API_KEY` (+ model secrets if needed)
+3. Deploy → `https://decorum-mvp.izemxlab.com` (slug = repo name)

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __SLUG__
+  namespace: mvp-lab
+  labels:
+    app: __SLUG__
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: __SLUG__
+  template:
+    metadata:
+      labels:
+        app: __SLUG__
+    spec:
+      tolerations:
+        - key: "project"
+          operator: "Equal"
+          value: "mvp-lab"
+          effect: "NoSchedule"
+      nodeSelector:
+        project: mvp-lab
+      imagePullSecrets:
+        - name: dockerhub
+      containers:
+        - name: __SLUG__
+          image: __IMAGE__
+          ports:
+            - containerPort: 8787
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: API_PORT
+              value: "8787"
+          envFrom:
+            - secretRef:
+                name: __SLUG__-env
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8787
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 8787
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
