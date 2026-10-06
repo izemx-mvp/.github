@@ -47,33 +47,47 @@ jobs:
           fi
 
           if [ -f package.json ]; then
-            # recharts peers react-is but Lovable often omits it → Vite build fails
-            node -e "
-              const fs=require('fs');
-              const p=JSON.parse(fs.readFileSync('package.json'));
-              p.dependencies=p.dependencies||{};
-              const hasRecharts=!!(p.dependencies.recharts||(p.devDependencies||{}).recharts);
-              if(hasRecharts && !p.dependencies['react-is'] && !(p.devDependencies||{})['react-is']){
-                p.dependencies['react-is']='^19.0.0';
-                fs.writeFileSync('package.json',JSON.stringify(p,null,2));
-                console.log('added missing peer dependency: react-is');
-              }
-            "
-            if find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
+            TANSTACK=0
+            if node -e "const p=require('./package.json'); const d={...(p.dependencies||{}),...(p.devDependencies||{})}; if(!d['@tanstack/react-start'] && !d['@lovable.dev/vite-tanstack-config']) process.exit(1)"; then
+              TANSTACK=1
+            fi
+
+            if [ "$TANSTACK" = "1" ] && find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
               echo "Build mode: fullstack (TanStack Start + API routes)"
               echo "BUILD_MODE=fullstack" >> "$GITHUB_ENV"
               cp .mvp/mvp-template/Dockerfile.fullstack ./Dockerfile
               cp .mvp/mvp-template/vite.config.fullstack.ts .
               cp .mvp/mvp-template/.dockerignore .
               node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};p.scripts['build:docker']='vite build --config vite.config.fullstack.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('set build:docker for fullstack');"
-            else
+            elif [ "$TANSTACK" = "1" ]; then
               echo "Build mode: Lovable static SPA (nginx)"
               echo "BUILD_MODE=lovable-static" >> "$GITHUB_ENV"
+              # recharts peers react-is but Lovable often omits it
+              node -e "
+                const fs=require('fs');
+                const p=JSON.parse(fs.readFileSync('package.json'));
+                p.dependencies=p.dependencies||{};
+                const hasRecharts=!!(p.dependencies.recharts||(p.devDependencies||{}).recharts);
+                if(hasRecharts && !p.dependencies['react-is'] && !(p.devDependencies||{})['react-is']){
+                  p.dependencies['react-is']='^19.0.0';
+                  fs.writeFileSync('package.json',JSON.stringify(p,null,2));
+                  console.log('added missing peer dependency: react-is');
+                }
+              "
               cp .mvp/mvp-template/Dockerfile .
               cp .mvp/mvp-template/nginx.conf .
               cp .mvp/mvp-template/vite.config.docker.ts .
               cp .mvp/mvp-template/.dockerignore .
               node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};if(!p.scripts['build:docker']){p.scripts['build:docker']='vite build --config vite.config.docker.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('added build:docker');}"
+            elif [ -f vite.config.ts ] || [ -f vite.config.js ] || [ -f vite.config.mjs ]; then
+              echo "Build mode: Vite SPA (nginx, app vite.config)"
+              echo "BUILD_MODE=vite-spa" >> "$GITHUB_ENV"
+              cp .mvp/mvp-template/vite-spa/Dockerfile ./Dockerfile
+              cp .mvp/mvp-template/static/nginx.conf ./nginx.conf
+              cp .mvp/mvp-template/.dockerignore .
+              node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};p.scripts['build:docker']='vite build';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('set build:docker for vite spa');"
+            else
+              echo "ERROR: package.json is not TanStack Start and has no vite.config"; exit 1
             fi
           elif [ -f index.html ]; then
             echo "Build mode: static HTML"

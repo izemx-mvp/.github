@@ -9,8 +9,9 @@
 |---|---|---|
 | Root `Dockerfile` + `client/` + `server/` | **custom** | Keep repo Dockerfile (e.g. Express **8787**) |
 | `index.html` at repo root | static HTML | nginx |
-| `package.json` without server features | Lovable SPA | nginx |
-| `src/routes/api/` | fullstack | Node (TanStack Start + Nitro) |
+| Vite app without TanStack Start | Vite SPA | nginx, app's own `vite.config` |
+| `@tanstack/react-start` without API routes | Lovable SPA | nginx |
+| TanStack Start + `src/routes/api/` | fullstack | Node (Nitro) |
 
 Lovable / static MVPs are unchanged. Custom mode never overwrites the app's Dockerfile.
 
