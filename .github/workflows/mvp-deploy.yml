@@ -52,16 +52,7 @@ jobs:
               TANSTACK=1
             fi
 
-            if [ "$TANSTACK" = "1" ] && find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
-              echo "Build mode: fullstack (TanStack Start + API routes)"
-              echo "BUILD_MODE=fullstack" >> "$GITHUB_ENV"
-              cp .mvp/mvp-template/Dockerfile.fullstack ./Dockerfile
-              cp .mvp/mvp-template/vite.config.fullstack.ts .
-              cp .mvp/mvp-template/.dockerignore .
-              node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};p.scripts['build:docker']='vite build --config vite.config.fullstack.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('set build:docker for fullstack');"
-            elif [ "$TANSTACK" = "1" ]; then
-              echo "Build mode: Lovable static SPA (nginx)"
-              echo "BUILD_MODE=lovable-static" >> "$GITHUB_ENV"
+            if [ "$TANSTACK" = "1" ]; then
               # recharts peers react-is but Lovable often omits it
               node -e "
                 const fs=require('fs');
@@ -74,6 +65,18 @@ jobs:
                   console.log('added missing peer dependency: react-is');
                 }
               "
+            fi
+
+            if [ "$TANSTACK" = "1" ] && find src/routes/api -type f \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | grep -q .; then
+              echo "Build mode: fullstack (TanStack Start + API routes)"
+              echo "BUILD_MODE=fullstack" >> "$GITHUB_ENV"
+              cp .mvp/mvp-template/Dockerfile.fullstack ./Dockerfile
+              cp .mvp/mvp-template/vite.config.fullstack.ts .
+              cp .mvp/mvp-template/.dockerignore .
+              node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.scripts=p.scripts||{};p.scripts['build:docker']='vite build --config vite.config.fullstack.ts';fs.writeFileSync('package.json',JSON.stringify(p,null,2));console.log('set build:docker for fullstack');"
+            elif [ "$TANSTACK" = "1" ]; then
+              echo "Build mode: Lovable static SPA (nginx)"
+              echo "BUILD_MODE=lovable-static" >> "$GITHUB_ENV"
               cp .mvp/mvp-template/Dockerfile .
               cp .mvp/mvp-template/nginx.conf .
               cp .mvp/mvp-template/vite.config.docker.ts .
